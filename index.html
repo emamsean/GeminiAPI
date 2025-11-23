@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini AI Photo Remixer</title>
+    <title>Gemini AI Remixer & Debugger</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
-    <!-- Updated Lucide CDN to a reliable UMD build -->
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Markdown parser for text responses -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
         .glass-panel {
@@ -26,11 +28,10 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        /* Markdown Styles */
+        .prose p { margin-bottom: 0.5em; }
+        .prose ul { list-style-type: disc; margin-left: 1.5em; }
+        .prose code { background: #1e293b; padding: 0.2em 0.4em; border-radius: 0.25em; font-family: monospace; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -42,7 +43,8 @@
                 <i data-lucide="wand-2" class="text-sky-400 h-6 w-6"></i>
                 <span class="font-semibold text-xl tracking-tight text-white">Gemini Remixer</span>
             </div>
-            <div>
+            <div class="flex items-center gap-4">
+                <span id="modeIndicator" class="text-xs font-mono px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-700">Mode: TEXT (Debug)</span>
                 <button id="settingsBtn" class="p-2 rounded-lg hover:bg-slate-700 transition-colors text-slate-300">
                     <i data-lucide="settings" class="h-5 w-5"></i>
                 </button>
@@ -84,6 +86,7 @@
                         <h2 class="text-lg font-medium text-white flex items-center gap-2">
                             <i data-lucide="image-plus" class="h-5 w-5 text-sky-400"></i> Source Image
                         </h2>
+                        <span class="text-xs text-slate-500">(Optional for Text Test)</span>
                         <button id="clearImageBtn" class="text-xs text-red-400 hover:text-red-300 hidden">Clear</button>
                     </div>
 
@@ -115,14 +118,14 @@
                     <div class="relative">
                         <textarea id="promptInput" rows="4" 
                             class="w-full bg-slate-800 border border-slate-600 rounded-xl p-4 text-sm text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none resize-none placeholder-slate-500"
-                            placeholder="Describe how you want to transform this image... (e.g., 'Make it look like a cyberpunk city', 'Turn the cat into a tiger')"></textarea>
+                            placeholder="Enter a prompt... (If no image, this tests text generation)"></textarea>
                     </div>
                     
                     <button id="generateBtn" class="w-full bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-sky-900/20">
-                        <span id="btnText">Generate Transformation</span>
+                        <span id="btnText">Send Request</span>
                         <div id="btnLoader" class="loader hidden"></div>
                     </button>
-                    <div id="errorMessage" class="hidden p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-200 text-xs"></div>
+                    <div id="errorMessage" class="hidden p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-200 text-xs break-words font-mono"></div>
                 </div>
             </div>
 
@@ -133,23 +136,26 @@
                     Result
                 </h2>
                 
-                <div id="resultContainer" class="flex-grow bg-slate-900/50 rounded-xl border border-slate-700 flex items-center justify-center relative overflow-hidden group">
+                <div id="resultContainer" class="flex-grow bg-slate-900/50 rounded-xl border border-slate-700 flex items-center justify-center relative overflow-hidden group p-4">
                     <!-- Placeholder -->
                     <div id="resultPlaceholder" class="text-center p-8">
-                        <i data-lucide="image" class="h-12 w-12 text-slate-700 mx-auto mb-3"></i>
-                        <p class="text-slate-500 text-sm">Your generated image will appear here</p>
+                        <i data-lucide="activity" class="h-12 w-12 text-slate-700 mx-auto mb-3"></i>
+                        <p class="text-slate-500 text-sm">Output will appear here</p>
                     </div>
 
                     <!-- Loading State -->
                     <div id="processingState" class="hidden flex-col items-center justify-center z-10">
                         <div class="loader w-12 h-12 border-4 mb-4 border-t-sky-400"></div>
-                        <p class="text-sky-400 text-sm font-medium animate-pulse">Dreaming up pixels...</p>
+                        <p id="loadingText" class="text-sky-400 text-sm font-medium animate-pulse">Connecting to API...</p>
                     </div>
 
-                    <!-- Actual Result -->
+                    <!-- Image Result -->
                     <img id="resultImage" class="hidden max-w-full max-h-full object-contain shadow-2xl rounded-lg transition-transform duration-300" alt="Generated Result">
                     
-                    <!-- Download Action -->
+                    <!-- Text Result -->
+                    <div id="resultText" class="hidden w-full h-full overflow-y-auto text-slate-200 prose prose-invert text-sm"></div>
+
+                    <!-- Download Action (Image Only) -->
                     <a id="downloadBtn" href="#" download="gemini-remix.png" class="absolute bottom-4 right-4 bg-slate-900/90 hover:bg-white hover:text-slate-900 text-white p-2 rounded-full shadow-lg transition-all hidden opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0">
                         <i data-lucide="download" class="h-5 w-5"></i>
                     </a>
@@ -165,28 +171,16 @@
     </footer>
 
     <script>
-        // Initialize Lucide Icons with safety check
-        const initIcons = () => {
-            if (window.lucide) {
-                lucide.createIcons();
-            } else {
-                // If not ready, try again after a short delay
-                setTimeout(() => {
-                    if (window.lucide) lucide.createIcons();
-                }, 500);
-            }
-        };
-        
-        // Run initialization
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initIcons);
+        // Initialize Lucide Icons safely
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
         } else {
-            initIcons();
+            window.addEventListener('load', function() {
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            });
         }
 
         // Constants
-        // IMPORTANT: This is empty for the generated file. 
-        // The user (you) or the hosting environment must provide the key.
         const apiKey = ""; 
         
         // DOM Elements
@@ -201,8 +195,10 @@
             btnLoader: document.getElementById('btnLoader'),
             resultContainer: document.getElementById('resultContainer'),
             resultImage: document.getElementById('resultImage'),
+            resultText: document.getElementById('resultText'),
             resultPlaceholder: document.getElementById('resultPlaceholder'),
             processingState: document.getElementById('processingState'),
+            loadingText: document.getElementById('loadingText'),
             downloadBtn: document.getElementById('downloadBtn'),
             errorMessage: document.getElementById('errorMessage'),
             apiKeyModal: document.getElementById('apiKeyModal'),
@@ -210,7 +206,8 @@
             saveKeyBtn: document.getElementById('saveKeyBtn'),
             settingsBtn: document.getElementById('settingsBtn'),
             closeModalBtn: document.getElementById('closeModalBtn'),
-            clearImageBtn: document.getElementById('clearImageBtn')
+            clearImageBtn: document.getElementById('clearImageBtn'),
+            modeIndicator: document.getElementById('modeIndicator')
         };
 
         // State
@@ -222,11 +219,23 @@
 
         // Init Logic
         const init = () => {
-            // Check if we need an API key
-            // If 'apiKey' constant is empty (default in file), check local storage
-            // If local storage is empty, show modal
             if (!apiKey && !state.userApiKey) {
                 els.apiKeyModal.classList.remove('hidden');
+            }
+            updateModeDisplay();
+        };
+
+        const updateModeDisplay = () => {
+            if (state.fileBase64) {
+                els.modeIndicator.textContent = "Mode: IMAGE GEN (High Quota)";
+                els.modeIndicator.classList.remove('text-slate-400', 'bg-slate-800');
+                els.modeIndicator.classList.add('text-sky-200', 'bg-sky-900');
+                els.btnText.textContent = "Generate Image";
+            } else {
+                els.modeIndicator.textContent = "Mode: TEXT DEBUG (Standard Quota)";
+                els.modeIndicator.classList.add('text-slate-400', 'bg-slate-800');
+                els.modeIndicator.classList.remove('text-sky-200', 'bg-sky-900');
+                els.btnText.textContent = "Send Text Request";
             }
         };
 
@@ -241,7 +250,7 @@
 
             const reader = new FileReader();
             reader.onload = (e) => {
-                state.fileBase64 = e.target.result.split(',')[1]; // Remove data:image/xyz;base64, prefix
+                state.fileBase64 = e.target.result.split(',')[1];
                 state.mimeType = file.type;
                 
                 els.imagePreview.src = e.target.result;
@@ -249,6 +258,7 @@
                 els.emptyState.classList.add('hidden');
                 els.clearImageBtn.classList.remove('hidden');
                 els.errorMessage.classList.add('hidden');
+                updateModeDisplay();
             };
             reader.readAsDataURL(file);
         };
@@ -283,6 +293,7 @@
             els.emptyState.classList.remove('hidden');
             els.clearImageBtn.classList.add('hidden');
             els.fileInput.value = '';
+            updateModeDisplay();
         });
 
         // --- API Handling ---
@@ -292,44 +303,42 @@
 
             els.errorMessage.classList.add('hidden');
 
-            // Validation
             if (!keyToUse) {
                 els.apiKeyModal.classList.remove('hidden');
                 return;
             }
-            if (!state.fileBase64) {
-                showError("Please upload an image first.");
-                return;
-            }
             if (!prompt) {
-                showError("Please enter a prompt describing the change.");
+                showError("Please enter a prompt.");
                 return;
             }
 
-            // UI Loading State
-            setLoading(true);
+            // Determine Mode
+            const isImageMode = !!state.fileBase64;
+
+            setLoading(true, isImageMode);
 
             try {
-                // Call Gemini API (gemini-2.5-flash-image-preview)
-                // This endpoint supports multimodal input for image editing/generation
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${keyToUse}`;
+                let url, payload;
 
-                const payload = {
-                    contents: [{
-                        parts: [
-                            { text: prompt },
-                            {
-                                inlineData: {
-                                    mimeType: state.mimeType,
-                                    data: state.fileBase64
-                                }
-                            }
-                        ]
-                    }],
-                    generationConfig: {
-                        responseModalities: ["TEXT", "IMAGE"] 
-                    }
-                };
+                if (isImageMode) {
+                    // --- IMAGE MODE (Strict Quota) ---
+                    url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${keyToUse}`;
+                    payload = {
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: state.mimeType, data: state.fileBase64 } }
+                            ]
+                        }],
+                        generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
+                    };
+                } else {
+                    // --- TEXT MODE (Standard Quota - Good for Debugging) ---
+                    url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${keyToUse}`;
+                    payload = {
+                        contents: [{ parts: [{ text: prompt }] }]
+                    };
+                }
 
                 const response = await fetch(url, {
                     method: 'POST',
@@ -339,66 +348,78 @@
 
                 if (!response.ok) {
                     const errData = await response.json();
-                    throw new Error(errData.error?.message || 'API Request Failed');
+                    throw new Error(JSON.stringify(errData.error, null, 2));
                 }
 
                 const data = await response.json();
                 
-                // Extract Image
-                const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-                
+                // Parse Result
+                const parts = data.candidates?.[0]?.content?.parts || [];
+                const imagePart = parts.find(p => p.inlineData);
+                const textPart = parts.find(p => p.text);
+
                 if (imagePart) {
                     const resultBase64 = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-                    showResult(resultBase64);
+                    showResult(resultBase64, null);
+                } else if (textPart) {
+                    showResult(null, textPart.text);
                 } else {
-                    // Sometimes it might just return text if it refused to gen image
-                    const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
-                    if (textPart) {
-                        showError("The model returned text instead of an image: " + textPart.text);
-                    } else {
-                        throw new Error("No image generated.");
-                    }
+                    throw new Error("No content returned.");
                 }
 
             } catch (err) {
                 console.error(err);
-                showError(err.message);
+                // Format error for display
+                let cleanMsg = err.message;
+                try {
+                     const obj = JSON.parse(err.message);
+                     if(obj.message) cleanMsg = obj.message;
+                } catch(e) {}
+                showError(cleanMsg);
             } finally {
                 setLoading(false);
             }
         });
 
         // --- Helpers ---
-        const setLoading = (isLoading) => {
+        const setLoading = (isLoading, isImageMode) => {
             if (isLoading) {
                 els.generateBtn.disabled = true;
-                els.btnText.textContent = "Generating...";
                 els.btnLoader.classList.remove('hidden');
+                els.loadingText.textContent = isImageMode ? "Processing Image..." : "Testing API Connection...";
                 
                 els.resultPlaceholder.classList.add('hidden');
                 els.resultImage.classList.add('hidden');
+                els.resultText.classList.add('hidden');
                 els.downloadBtn.classList.add('hidden');
                 els.processingState.classList.remove('hidden');
                 els.processingState.classList.add('flex');
             } else {
                 els.generateBtn.disabled = false;
-                els.btnText.textContent = "Generate Transformation";
                 els.btnLoader.classList.add('hidden');
-                
                 els.processingState.classList.add('hidden');
                 els.processingState.classList.remove('flex');
             }
         };
 
-        const showResult = (base64Src) => {
-            els.resultImage.src = base64Src;
-            els.resultImage.classList.remove('hidden');
-            els.downloadBtn.href = base64Src;
-            els.downloadBtn.classList.remove('hidden');
+        const showResult = (base64Src, textContent) => {
+            if (base64Src) {
+                els.resultImage.src = base64Src;
+                els.resultImage.classList.remove('hidden');
+                els.downloadBtn.href = base64Src;
+                els.downloadBtn.classList.remove('hidden');
+                els.resultText.classList.add('hidden');
+            } else if (textContent) {
+                // Use marked to parse markdown
+                els.resultText.innerHTML = marked.parse(textContent);
+                els.resultText.classList.remove('hidden');
+                els.resultImage.classList.add('hidden');
+                els.downloadBtn.classList.add('hidden');
+            }
         };
 
         const showError = (msg) => {
-            els.errorMessage.textContent = msg;
+            els.errorMessage.textContent = "Error: " + msg;
             els.errorMessage.classList.remove('hidden');
         };
 
